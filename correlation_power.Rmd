@@ -1,0 +1,378 @@
+---
+title: ''
+output: html_document
+---
+
+```{r setup, include = FALSE}
+
+  knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+  library(dplyr)
+  library(ggplot2)
+  library(viridis)
+  library(gsDesign)
+
+
+```
+
+
+```{r}
+
+# Planning a sample size for test-retest
+
+# We are focusing on correlations (r), so we need to use Fisher's transform
+# (r -> z) since the sampling distribution of r is often skewed and while for z
+# it's Gaussian.
+
+  r_trans <- function(r){return(0.5 * log((1 + r)/(1 - r)))} # Fisher's xform
+  rev_trans <- function(z){return((exp(2*z) - 1)/ (exp(2*z) + 1))} # xform back
+
+```
+
+
+# Based on 0.6
+
+```{r}
+
+# This loop takes the null r (1), transforms to z (2), and calcuates the se
+# based on n (3). Then it finds the crticial value at which we would reject z <
+# x, with error = 0.05 (upper tail). Then it calculates an alt z value where you
+# would reject alt_z >= x at the same critical value in the lower tail with a
+# given power (5). Then everything goes into a data frame for plotting.
+
+  results <- list(); k <- 1; null <- 0.6 # 1
+  for(n in 10:300){
+    for(pwr in c(0.80, 0.85, 0.90, 0.95)){
+      z <- r_trans(null) # 2
+      se  <- 1 / sqrt(n - 3) # 3
+      crit <- qnorm(0.95, z, se) # 4
+      alt_z <- -1 * ((qnorm(1 - pwr, 0, 1) * se) - crit) # 5
+      results[[k]] <- data.frame(
+        alt = rev_trans(alt_z),
+        n = n,
+        Power = pwr
+      ) 
+      k <- k + 1
+    }
+  }
+
+
+  results_4 <- do.call(rbind, results)
+  
+  ggplot(results_4, aes(x = n, y = alt, color = factor(Power), group = Power)) +
+    geom_line(size = 1) +
+    geom_point(aes(x = 112, y = 0.75), color = "red", size = 3) +
+    scale_color_viridis("Power", discrete = TRUE) +
+    xlab("N Participants (paired test observations)") +
+    ylab("Alternative r") +
+    theme_minimal() +
+    scale_x_continuous(breaks = seq(0, 300, 25)) +
+    scale_y_continuous(breaks = seq(0.6, 1, 0.05)) +
+    theme(panel.grid.minor = element_blank()) + 
+    ggtitle("Power at different sample sizes and alternative values for r", 
+            subtitle = "With a one-sided test of r <= 0.60 vs > 0.60 based on a normal model of Fisher's tranformation of r,\n with 5% type 1 error")
+  
+  ggsave("plots/power.png", width = 33.867, height = 19.05, units = "cm",
+         scale = 0.6, dpi = 600)
+  
+#  View(filter(results_4, Power == 0.90))
+
+```
+
+# For 0.75
+
+```{r}
+
+
+# This loop takes the null r (1), transforms to z (2), and calcuates the se
+# based on n (3). Then it finds the crticial value at which we would reject z <
+# x, with error = 0.10 (lower tail). Then it calculates an alt z value where you
+# would reject alt_z >= x at the same critical value in the lower tail with a
+# given power (5). Then everything goes into a data frame for plotting.
+
+  results <- list(); k <- 1; null <- 0.75 # 1
+  for(n in 10:300){
+    for(pwr in c(0.80, 0.85, 0.90, 0.95)){
+      z <- r_trans(null) # 2
+      se  <- 1 / sqrt(n - 3) # 3
+      crit <- qnorm(0.05, z, se) # 4
+      alt_z <- ((qnorm(1 - pwr, 0, 1) * se) + crit) # 5
+      results[[k]] <- data.frame(
+        alt = rev_trans(alt_z),
+        n = n,
+        Power = pwr
+      ) 
+      k <- k + 1
+    }
+  }
+
+
+  results_4 <- do.call(rbind, results)
+  
+  ggplot(results_4, aes(x = n, y = alt, color = factor(Power), group = Power)) +
+    geom_line(size = 1) +
+    geom_point(aes(x = 112, y = 0.60), color = "red", size = 3) +
+    scale_color_viridis("Power", discrete = TRUE) +
+    xlab("N Participants (paired test observations)") +
+    ylab("Alternative r") +
+    theme_minimal() +
+    ylim(0.5, 0.7) +
+    # scale_x_continuous(breaks = seq(0, 300, 25)) +
+    # scale_y_continuous(breaks = seq(0.6, 1, 0.05)) +
+    theme(panel.grid.minor = element_blank()) +ggtitle("Power at different sample sizes and alternative values for r", 
+            subtitle = "With a one-sided test of r >= 0.75 vs < 0.75 based on a normal model of Fisher's tranformation of r,\n with 5% type 1 error")
+  
+  ggsave("plots/power2.png", width = 33.867, height = 19.05, units = "cm",
+         scale = 0.6, dpi = 600)
+  
+#  View(filter(results_4, Power == 0.90))
+
+
+```
+
+
+
+# O'Brien-Fleming adjustment for early tests
+```{r}
+  
+  gsDesign(k = 4, test.type = 1, alpha = 0.10, n.fix = 112, sfu = "OF")
+   
+```
+
+
+
+```{r}
+
+  require(psychometric)
+  require(tidyverse)
+  
+  allN <- seq(25,125)
+  allr <- c(.6,.75)
+  
+  mydf <- data.frame(matrix(NA, nrow=length(allN)*length(allr),ncol=4))
+  colnames(mydf) <- c('N','r','lowCI','hiCI')
+  thisrow<-0
+  for (n in allN){
+    for (r in allr){
+      thisrow<-thisrow+1
+      mydf$N[thisrow]<-n
+      mydf$r[thisrow]<-r
+      mydf[thisrow,3:4] <- CIr(r,n,.95)
+    }
+  }
+  
+  par(mfrow=c(1,2))
+  labels <- c ("Poor reliability", "Acceptable reliability")
+  for (r in 1:2){
+    thisr<-allr[r]
+    myplotdata <- filter(mydf,r==thisr)
+    plot(myplotdata$N,myplotdata$lowCI,type='l',lty=2,ylim=c(.3,.9),
+         main=labels[r],xlab='N',ylab='true r with 95%CI')
+    lines(myplotdata$N,myplotdata$hiCI,lty=2)
+    abline(h=.75,col='red',lty=2)
+    abline(h=.6,col='blue',lty=2)
+    abline(h=thisr)
+    
+      text(60,.4,'A')
+      text(80,.8,'B')
+   
+    }
+
+  
+  
+}
+
+```
+
+
+
+
+################################################################################
+
+# Older code
+
+To plan the sample size of the study, we set our null model for the test-retest reliablity (using Pearson's r) at 0.80, using a normal sampling distribution after transformation to Fisher's z. Then, using a one-sided test of H0: r >= 0.8 vs H1: r < 0.8 with a type 1 error of 5%, we evaluated what our power would be to correctly reject the null under alternative true values for r.  
+
+```{r}
+
+# Given n = X, what is power at different alteranative sampling distrubutions?
+
+  results <- list(); k <- 1;
+  for(n in c(50, 100, 130)){
+    for(effect in seq(0.01, 0.79, by = 0.01)){
+      se  <- 1 / sqrt(n - 3) # get se for transformed r and n
+      z <- r_trans(0.8)
+      crit <- qnorm(0.05, z, se)
+      power <- pnorm(crit, r_trans(effect), se, lower.tail = TRUE)
+      results[[k]] <- data.frame(
+        effect = effect,
+        n = n,
+        Power = power
+      )
+      k <- k + 1
+    }
+  }
+
+  results_2 <- do.call(rbind, results)
+  ggplot(results_2, aes(x = effect, y = Power, color = factor(n), group = n)) +
+    geom_line(size = 1) +
+    geom_hline(yintercept = 0.8) +
+    scale_color_viridis("n participants", discrete = TRUE) +
+    xlim(c(0.5, 0.8)) +
+    xlab("Alternative effect (r)") +
+    theme_minimal() +
+    ggtitle("Power at different sample sizes and alternative true values for r", 
+            subtitle = "With a one-sided test of r >= 0.8 vs < 0.8 based on a normal model of Fisher's tranformation of r,\n with 5% type 1 error")
+  
+  ggsave("plots/power.png", width = 33.867, height = 19.05, units = "cm",
+         scale = 0.6, dpi = 600)
+
+```
+
+```{r}
+
+# Given n = X, what is power at different alteranative sampling distrubutions?
+
+  results <- list(); k <- 1;
+  for(n in c(65, 112, 130, 150)){
+    for(effect in seq(0.01, 0.74, by = 0.01)){
+      se  <- 1 / sqrt(n - 3) # get se for transformed r and n
+      z <- r_trans(0.75)
+      crit <- qnorm(0.05, z, se)
+      power <- pnorm(crit, r_trans(effect), se, lower.tail = TRUE)
+      results[[k]] <- data.frame(
+        effect = effect,
+        n = n,
+        Power = power
+      )
+      k <- k + 1
+    }
+  }
+
+  results_2 <- do.call(rbind, results)
+  ggplot(results_2, aes(x = effect, y = Power, color = factor(n), group = n)) +
+    geom_line(size = 1) +
+    geom_hline(yintercept = 0.8) +
+    scale_color_viridis("n participants", discrete = TRUE) +
+    xlim(c(0.5, 0.8)) +
+    xlab("Alternative effect (r)") +
+    theme_minimal() +
+    ggtitle("Power at different sample sizes and alternative true values for r", 
+            subtitle = "With a one-sided test of r >= 0.75 vs < 0.75 based on a normal model of Fisher's tranformation of r,\n with 5% type 1 error")
+  
+  ggsave("plots/power2.png", width = 33.867, height = 19.05, units = "cm",
+         scale = 0.6, dpi = 600)
+  
+    View(filter(results_2, n == 112))
+
+
+```
+
+
+
+The plot above gives power for possible alternative values of r (x axis; between 0.5 to 0.79) as a function of sample size. If you following the yellow line, you can see that 200 participants (that is 200 pairs of tests) would give you 80% to correctly reject the null of 0.8 if the true values for r was 0.72 (with higher power for lower true values of r). At 50 participants, you would corectly reject the null of 0.8 is the true values for r was 0.63 80% of the time. Alternatively, you can think of this as saying, "If the truth was actually 0.63, I would still accept that r was = 0.8 20% of the time, based on a one-sided test with 5% type 1 error." The question is whether you find this acceptable. 
+
+```{r}
+
+# Given n = x, what are the alternatives that give 80% power
+
+  results <- list(); k <- 1;
+  for(n in 10:300){
+    for(effect in seq(0.5, 0.79, by = 0.01)){
+      for(pwr in c(0.80, 0.85, 0.90)){
+      se  <- 1 / sqrt(n - 3) # get se for transformed r and n
+      z <- r_trans(0.8)
+      crit <- qnorm(0.05, z, se)
+      power <- round(pnorm(crit, r_trans(effect), se, lower.tail = TRUE), 2)
+      results[[k]] <- data.frame(
+        effect = effect,
+        n = n,
+        Power = pwr
+      ) %>%
+        filter(power == pwr)
+      k <- k + 1
+      }
+    }
+  }
+
+
+  results_3 <- do.call(rbind, results)
+  ggplot(results_3, aes(x = n, y = effect, color = factor(Power), group = Power)) +
+    geom_smooth(size = 1, se = FALSE) +
+    scale_color_viridis("Power", discrete = TRUE) +
+    xlab("n Participants") +
+    theme_minimal()
+
+```
+
+This is the same information, just reorganized. What sample would you need to correctly reject the null of r = 0.8 at a given alternative value for r, and a given power. 
+
+
+
+
+```{r, include = FALSE}
+
+# "Simple" approach ------------------------------------------------------------
+
+# Here we treat the problem like on of non-inferiority. That is, we set up
+# a null sampling distribution of r = 0.8. We then set up a one-sided test
+# of H0: r >= 0.8 vs. H1: r < 0.8.
+
+# At different sample sizes, compute the 1 sided (5%) value of the null
+# sampling distribution.
+
+
+  results <- list(); k <- 1; null <- 0.6
+  for(n in 10:200){
+    se  <- 1 / sqrt(n - 3) # get se for transformed r and n
+    z <- r_trans(null)
+    crit <- qnorm(0.05, z, se)
+    results[[k]] <- data.frame(
+      n = n,
+      crit_z = crit,
+      crit_r = rev_trans(crit)
+    )
+    k <- k + 1
+  }
+
+  results_1 <- do.call(rbind, results)
+
+  ggplot(results_1, aes(x = n, y = crit_r)) +
+    geom_line(size = 1, color = viridis(1)) +
+    ylab("Critical Rejection Value (r)") +
+    xlab("n participants") +
+    theme_minimal()
+
+```
+
+Power for all effects at n= 130
+
+```{r}
+
+  results <- list(); k <- 1;
+  for(effect in seq(0.05, 0.95, by = 0.01)){
+    se  <- 1 / sqrt(130 - 3) # get se for transformed r and n
+    z <- r_trans(effect)
+    ll <- rev_trans(z + 1.96 * se)
+    ul <- rev_trans(z - 1.96 * se)
+    results[[k]] <- data.frame(
+      effect = effect,
+      ul = ul,
+      ll = ll
+    )
+    k <- k + 1
+  }
+  
+
+
+  results_4 <- do.call(rbind, results)
+  ggplot(results_4, aes(x = effect, y = effect, ymax = ul, ymin = ll, 
+                        color = effect)) +
+    geom_pointrange() +
+    scale_color_viridis(guide = FALSE) +
+    xlab("r") +
+    ylab("95% CI") +
+    theme_minimal()
+
+```
+
